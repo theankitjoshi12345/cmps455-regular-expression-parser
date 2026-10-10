@@ -6,7 +6,7 @@ import argparse
 from collections.abc import Sequence
 from typing import Optional
 
-from .recognizer import RegexRecognizer
+from .recognizer import RecognitionError, RegexRecognizer
 from .scanner import tokenize
 
 DEFAULT_EXPRESSIONS = (
@@ -36,11 +36,17 @@ def build_parser() -> argparse.ArgumentParser:
 def run(expressions: Sequence[str]) -> int:
     """Process expressions and return a command-line status code."""
 
+    status = 0
     for expression in expressions:
         print(f'Processing expression: "{expression}"')
-        recognized = RegexRecognizer(tokenize(expression)).recognize()
-        print("recognized" if recognized else "not recognized")
-    return 0
+        try:
+            tree = RegexRecognizer(tokenize(expression)).parse()
+        except RecognitionError as error:
+            print(f"not recognized: {error}")
+            status = 1
+        else:
+            print(RegexRecognizer.render(tree))
+    return status
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
