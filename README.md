@@ -53,13 +53,14 @@ The scanner exposes `Token`, `TokenType`, `tokenize`, and `TokenStream`.
 spaces and tabs are skipped, newlines produce `EOL`, and unsupported control
 characters produce `ERROR`.
 
-The recognizer exposes the grammar layers `char_or_meta`, `set_items`,
-`elementary_re`, `basic_re`, `simple_re`, and `regular_expression`. Use
-`RegexRecognizer.parse()` for a complete parse tree; it raises
-`RecognitionError` with the offending token and source position for malformed
-input. `recognize()` provides a boolean validation result, and
-`ParseNode.render` renders the tree with four spaces per grammar level and
-token leaves in `lexeme TOKEN_TYPE` form.
+The recognizer has one method for each grammar rule:
+`parse_regular_expression`, `parse_simple_regular_expression`,
+`parse_basic_regular_expression`, `parse_elementary_regular_expression`,
+`parse_character_or_metacharacter`, and `parse_set_items`. It prints the
+concrete syntax tree directly with four spaces per grammar level and token
+leaves in `lexeme TOKEN_TYPE` form. `RecognitionError` reports malformed input
+with the offending token and source position. The command-line entry point
+prints each tree and returns a nonzero status if any expression is invalid.
 
 For example, `python -m regex_parser two` prints:
 

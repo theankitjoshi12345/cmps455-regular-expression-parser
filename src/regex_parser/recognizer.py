@@ -1,37 +1,179 @@
-"""Recursive-descent recognizer rules for regular expressions."""
+"""Recursive-descent recognizer for the CMPS 455 regular-expression grammar."""
 
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
-from typing import List, Optional
 
 from .scanner import Token, TokenStream, TokenType
 
 
 class RecognitionError(ValueError):
-    """Raised when a token sequence violates a recognizer rule."""
+    """Raised when the input does not match the assignment grammar."""
 
 
-@dataclass(frozen=True)
-class ParseNode:
-    """A small concrete parse-tree node used by the Issue 3 rules."""
+class RegexRecognizer:
+    """Recognize and print a concrete syntax tree during recursive descent."""
 
-    name: str
-    token: Optional[Token] = None
-    children: tuple["ParseNode", ...] = ()
+    def __init__(self, tokens: Iterable[Token]) -> None:
+        self.stream = tokens if isinstance(tokens, TokenStream) else TokenStream(tokens)
 
-    def lines(self, depth: int = 0) -> List[str]:
-        indent = "    " * depth
-        if self.token is not None:
-            return [f"{indent}{self.token.value} {self.token.typ}"]
-        result = [f"{indent}{self.name}"]
-        for child in self.children:
-            result.extend(child.lines(depth + 1))
-        return result
+    def parse(self) -> None:
+        """Parse one complete expression and print its tree."""
+
+        self.parse_regular_expression(0)
+        trailing_token = self.stream.peek()
+        if trailing_token is not None:
+            self._raise_error(f"unexpected trailing {trailing_token.typ}", trailing_token)
+
+    def parse_regular_expression(self, indentation_level: int) -> None:
+        """Parse ``<re> ::= <simple-re> { '|' <simple-re> }``."""
+
+        self._print_node("RE", indentation_level)
+        self.parse_simple_regular_expression(indentation_level + 1)
+
+        while self.stream.peek() is not None and self.stream.peek().typ == TokenType.VERT:
+            self._print_token(self.stream.advance(), indentation_level + 1)
+            self.parse_simple_regular_expression(indentation_level + 1)
+
+    def parse_simple_regular_expression(self, indentation_level: int) -> None:
+        """Parse ``<simple-re> ::= <basic-re> { <basic-re> }``."""
+
+        self._print_node("S_RE", indentation_level)
+        if not self._starts_elementary():
+            self._raise_expected("basic regular expression")
+
+        while self._starts_elementary():
+            self.parse_basic_regular_expression(indentation_level + 1)
+
+    def parse_basic_regular_expression(self, indentation_level: int) -> None:
+        """Parse ``<basic-re> ::= <elementary-re> [ '*' | '+' | '?' ]``."""
+
+        self._print_node("B_RE", indentation_level)
+        if self.stream.peek() is not None and self.stream.peek().typ in _QUANTIFIERS:
+            self._raise_expected("elementary regular expression")
+
+        self.parse_elementary_regular_expression(indentation_level + 1)
+        next_token = self.stream.peek()
+        if next_token is not None and next_token.typ in _QUANTIFIERS:
+            self._print_token(self.stream.advance(), indentation_level + 1)
+            next_token = self.stream.peek()
+            if next_token is not None and next_token.typ in _QUANTIFIERS:
+                self._raise_error("repeated quantifier", next_token)
+
+    def parse_elementary_regular_expression(self, indentation_level: int) -> None:
+        """Parse one of the five ``<elementary-re>`` alternatives."""
+
+        self._print_node("E_RE", indentation_level)
+        current_token = self.stream.peek()
+        if current_token is None:
+            self._raise_expected("elementary regular expression")
+
+        if current_token.typ == TokenType.LPAREN:
+            self._print_token(self.stream.advance(), indentation_level + 1)
+            self.parse_regular_expression(indentation_level + 1)
+            closing_token = self.stream.peek()
+            if closing_token is None or closing_token.typ != TokenType.RPAREN:
+                self._raise_expected("closing parenthesis")
+            self._print_token(self.stream.advance(), indentation_level + 1)
+            return
+
+        if current_token.typ == TokenType.PERIOD:
+            self._print_token(self.stream.advance(), indentation_level + 1)
+            return
+
+        if current_token.typ in (TokenType.LPOSSET, TokenType.LNEGSET):
+            self._print_token(self.stream.advance(), indentation_level + 1)
+            self.parse_set_items(indentation_level + 1)
+            closing_token = self.stream.peek()
+            if closing_token is None or closing_token.typ != TokenType.RSET:
+                self._raise_expected("closing set bracket")
+            self._print_token(self.stream.advance(), indentation_level + 1)
+            return
+
+        if current_token.typ in (TokenType.CHAR, TokenType.BSLASH):
+            self.parse_character_or_metacharacter(indentation_level + 1)
+            return
+
+        self._raise_expected("elementary regular expression")
+
+    def parse_character_or_metacharacter(
+        self, indentation_level: int, allow_unescaped_metacharacter: bool = False
+    ) -> None:
+        """Parse ``<char-or-meta>`` and print its token leaves."""
+
+        self._print_node("CHAR_OR_META", indentation_level)
+        current_token = self.stream.peek()
+        if current_token is None:
+            self._raise_expected("character or metacharacter")
+
+        if current_token.typ == TokenType.CHAR:
+            self._print_token(self.stream.advance(), indentation_level + 1)
+            return
+
+        if (
+            allow_unescaped_metacharacter
+            and current_token.typ in _UNESCAPED_SET_METACHARACTERS
+        ):
+            self._print_token(self.stream.advance(), indentation_level + 1)
+            return
+
+        if current_token.typ == TokenType.BSLASH:
+            self._print_token(self.stream.advance(), indentation_level + 1)
+            next_token = self.stream.peek()
+            if next_token is None or next_token.typ not in _METACHARACTERS:
+                self._raise_expected("metacharacter after backslash")
+            self._print_token(self.stream.advance(), indentation_level + 1)
+            return
+
+        self._raise_expected("character or metacharacter")
+
+    def parse_set_items(self, indentation_level: int) -> None:
+        """Parse ``<set-items> ::= <char-or-meta> { <char-or-meta> }``."""
+
+        self._print_node("SITEMS", indentation_level)
+        if self.stream.peek() is None or self.stream.peek().typ == TokenType.RSET:
+            self._raise_expected("set item")
+
+        while self.stream.peek() is not None and self.stream.peek().typ != TokenType.RSET:
+            self.parse_character_or_metacharacter(
+                indentation_level + 1, allow_unescaped_metacharacter=True
+            )
+
+    def _starts_elementary(self) -> bool:
+        current_token = self.stream.peek()
+        return current_token is not None and current_token.typ in {
+            TokenType.CHAR,
+            TokenType.BSLASH,
+            TokenType.PERIOD,
+            TokenType.LPAREN,
+            TokenType.LPOSSET,
+            TokenType.LNEGSET,
+        }
+
+    @staticmethod
+    def _print_node(label: str, indentation_level: int) -> None:
+        print(f"{'    ' * indentation_level}{label}")
+
+    @staticmethod
+    def _print_token(token: Token | None, indentation_level: int) -> None:
+        if token is not None:
+            print(f"{'    ' * indentation_level}{token.value} {token.typ}")
+
+    def _raise_expected(self, expected: str) -> None:
+        token = self.stream.peek()
+        if token is None:
+            raise RecognitionError(f"expected {expected}, found end of input")
+        self._raise_error(f"expected {expected}", token)
+
+    @staticmethod
+    def _raise_error(message: str, token: Token) -> None:
+        raise RecognitionError(
+            f"{message}; found {token.typ} at line {token.line}, column {token.column}"
+        )
 
 
-_ESCAPABLE_TYPES = frozenset(
+_QUANTIFIERS = frozenset({TokenType.STAR, TokenType.PLUS, TokenType.QMARK})
+_METACHARACTERS = frozenset(
     {
         TokenType.VERT,
         TokenType.STAR,
@@ -40,235 +182,15 @@ _ESCAPABLE_TYPES = frozenset(
         TokenType.LPAREN,
         TokenType.RPAREN,
         TokenType.PERIOD,
-        TokenType.LSET,
-        TokenType.NSET,
+        TokenType.LPOSSET,
+        TokenType.LNEGSET,
         TokenType.RSET,
         TokenType.LANGLE,
         TokenType.RANGLE,
         TokenType.BSLASH,
     }
 )
+_UNESCAPED_SET_METACHARACTERS = _METACHARACTERS - {TokenType.RSET, TokenType.BSLASH}
 
 
-class RegexRecognizer:
-    """Recognize the regular-expression grammar using recursive descent."""
-
-    def __init__(self, tokens: Iterable[Token]) -> None:
-        self.stream = (
-            tokens if isinstance(tokens, TokenStream) else TokenStream(tokens)
-        )
-
-    def recognize(self) -> bool:
-        """Return whether the complete token stream is a valid expression."""
-
-        try:
-            self.parse()
-        except RecognitionError:
-            return False
-        return True
-
-    def parse(self) -> ParseNode:
-        """Parse one complete regular expression and reject trailing input."""
-
-        node = self.regular_expression()
-        token = self.stream.peek()
-        if token is not None:
-            raise RecognitionError(
-                f"unexpected trailing token {token.typ} at "
-                f"line {token.line}, column {token.column}"
-            )
-        return node
-
-    def char_or_meta(self, *, in_set: bool = False) -> ParseNode:
-        """Parse ``<char-or-meta>`` and consume its tokens."""
-
-        token = self.stream.peek()
-        if token is None:
-            raise RecognitionError("expected CHAR_OR_META, found end of input")
-        if token.typ == TokenType.CHAR:
-            self.stream.advance()
-            return ParseNode("CHAR_OR_META", token=token)
-        if in_set and token.typ in (TokenType.LANGLE, TokenType.RANGLE):
-            self.stream.advance()
-            return ParseNode("CHAR_OR_META", token=token)
-        if token.typ == TokenType.BSLASH:
-            slash = self.stream.advance()
-            escaped = self.stream.peek()
-            if escaped is None or escaped.typ not in _ESCAPABLE_TYPES:
-                raise RecognitionError(
-                    "backslash must be followed by an escapable metacharacter"
-                )
-            self.stream.advance()
-            return ParseNode(
-                "CHAR_OR_META",
-                children=(
-                    ParseNode("BSLASH", token=slash),
-                    ParseNode("META", token=escaped),
-                ),
-            )
-        raise RecognitionError(
-            f"expected CHAR or escaped metacharacter, found {token.typ}"
-        )
-
-    def set_items(self) -> ParseNode:
-        """Parse one or more ``<set-items>`` until the caller sees RSET."""
-
-        items: list[ParseNode] = []
-        while self.stream.peek() is not None:
-            if self.stream.peek().typ == TokenType.RSET:
-                break
-            items.append(self.char_or_meta(in_set=True))
-        if not items:
-            raise RecognitionError("set-items requires at least one item")
-        if self.stream.peek() is None:
-            raise RecognitionError("set-items is unterminated")
-        return ParseNode("SITEMS", children=tuple(items))
-
-    def elementary_re(self) -> ParseNode:
-        """Parse one ``<elementary-re>`` alternative."""
-
-        token = self.stream.peek()
-        if token is None:
-            raise RecognitionError("expected elementary regular expression")
-
-        if token.typ == TokenType.LPAREN:
-            left = self.stream.advance()
-            contents = self.regular_expression()
-            right = self.stream.peek()
-            if right is None or right.typ != TokenType.RPAREN:
-                raise RecognitionError("parenthesized expression is unterminated")
-            self.stream.advance()
-            return ParseNode(
-                "E_RE",
-                children=(
-                    ParseNode("LPAREN", token=left),
-                    contents,
-                    ParseNode("RPAREN", token=right),
-                ),
-            )
-
-        if token.typ == TokenType.PERIOD:
-            self.stream.advance()
-            return ParseNode("E_RE", children=(ParseNode("PERIOD", token=token),))
-
-        if token.typ in (TokenType.CHAR, TokenType.BSLASH):
-            return ParseNode("E_RE", children=(self.char_or_meta(),))
-
-        if token.typ in (TokenType.LSET, TokenType.NSET):
-            left = self.stream.advance()
-            items = self.set_items()
-            right = self.stream.advance()
-            if right is None:
-                raise RecognitionError("set is unterminated")
-            return ParseNode(
-                "E_RE",
-                children=(
-                    ParseNode(token.typ, token=left),
-                    items,
-                    ParseNode(TokenType.RSET, token=right),
-                ),
-            )
-
-        raise RecognitionError(
-            f"expected elementary regular expression, found {token.typ}"
-        )
-
-    def elementaryRE(self) -> ParseNode:
-        return self.elementary_re()
-
-    def simple_re(self) -> ParseNode:
-        """Parse one or more adjacent basic regular expressions."""
-
-        basics: list[ParseNode] = []
-        while self._starts_elementary():
-            basics.append(self.basic_re())
-        if not basics:
-            self._raise_expected("basic regular expression")
-        return ParseNode("S_RE", children=tuple(basics))
-
-    def simpleRE(self) -> ParseNode:
-        return self.simple_re()
-
-    def regular_expression(self) -> ParseNode:
-        """Parse one or more simple expressions separated by VERT."""
-
-        alternatives = [self.simple_re()]
-        while self.stream.peek() is not None:
-            if self.stream.peek().typ != TokenType.VERT:
-                break
-            vertical = self.stream.advance()
-            alternatives.append(
-                ParseNode(TokenType.VERT, token=vertical)
-            )
-            alternatives.append(self.simple_re())
-        return ParseNode("RE", children=tuple(alternatives))
-
-    def regularExpression(self) -> ParseNode:
-        return self.regular_expression()
-
-    def basic_re(self) -> ParseNode:
-        """Parse ``<basic-re>`` with an optional unary quantifier."""
-
-        token = self.stream.peek()
-        if token is not None and token.typ in _QUANTIFIER_TYPES:
-            raise RecognitionError(
-                f"quantifier {token.typ} must follow an elementary expression"
-            )
-
-        elementary = self.elementary_re()
-        children = [elementary]
-        quantifier = self.stream.peek()
-        if quantifier is not None and quantifier.typ in _QUANTIFIER_TYPES:
-            children.append(
-                ParseNode(quantifier.typ, token=self.stream.advance())
-            )
-            repeated = self.stream.peek()
-            if repeated is not None and repeated.typ in _QUANTIFIER_TYPES:
-                raise RecognitionError(
-                    "an elementary expression may have only one quantifier"
-                )
-        return ParseNode("B_RE", children=tuple(children))
-
-    def basicRE(self) -> ParseNode:
-        return self.basic_re()
-
-    def _starts_elementary(self) -> bool:
-        token = self.stream.peek()
-        return token is not None and token.typ in {
-            TokenType.CHAR,
-            TokenType.BSLASH,
-            TokenType.PERIOD,
-            TokenType.LPAREN,
-            TokenType.LSET,
-            TokenType.NSET,
-        }
-
-    def _raise_expected(self, expected: str) -> None:
-        token = self.stream.peek()
-        if token is None:
-            raise RecognitionError(f"expected {expected}, found end of input")
-        raise RecognitionError(
-            f"expected {expected}, found {token.typ} at "
-            f"line {token.line}, column {token.column}"
-        )
-
-    # Grammar-style aliases keep the rule names visible to callers.
-    def charOrMeta(self) -> ParseNode:
-        return self.char_or_meta()
-
-    def sitems(self) -> ParseNode:
-        return self.set_items()
-
-    @staticmethod
-    def render(node: ParseNode) -> str:
-        """Render a parse node using the assignment tree format."""
-
-        return "\n".join(node.lines())
-
-
-_QUANTIFIER_TYPES = frozenset(
-    {TokenType.STAR, TokenType.PLUS, TokenType.QMARK}
-)
-
-
-__all__ = ["ParseNode", "RecognitionError", "RegexRecognizer"]
+__all__ = ["RecognitionError", "RegexRecognizer"]

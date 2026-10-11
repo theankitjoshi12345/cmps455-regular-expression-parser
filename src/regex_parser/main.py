@@ -15,7 +15,7 @@ DEFAULT_EXPRESSIONS = (
     "[two]",
     "[^two]",
     "t(oo?|wo)",
-    r"(\<(/?[^\\>]+)\>)",
+    r"(\<(/?[^\>]+)\>)",
 )
 
 
@@ -40,12 +40,10 @@ def run(expressions: Sequence[str]) -> int:
     for expression in expressions:
         print(f'Processing expression: "{expression}"')
         try:
-            tree = RegexRecognizer(tokenize(expression)).parse()
+            RegexRecognizer(tokenize(expression)).parse()
         except RecognitionError as error:
             print(f"not recognized: {error}")
             status = 1
-        else:
-            print(RegexRecognizer.render(tree))
     return status
 
 

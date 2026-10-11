@@ -29,15 +29,15 @@ class ScannerTests(unittest.TestCase):
         self.assertEqual(
             [token.typ for token in tokens],
             [
-                TokenType.NSET,
+                TokenType.LNEGSET,
                 TokenType.CHAR,
                 TokenType.CHAR,
                 TokenType.CHAR,
                 TokenType.RSET,
-                TokenType.BACKSLASH,
+                TokenType.BSLASH,
                 TokenType.LANGLE,
                 TokenType.CHAR,
-                TokenType.BACKSLASH,
+                TokenType.BSLASH,
                 TokenType.RANGLE,
             ],
         )

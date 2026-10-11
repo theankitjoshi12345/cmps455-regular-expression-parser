@@ -28,14 +28,6 @@ class TokenType:
     CHAR = "CHAR"
     ERROR = "ERROR"
 
-    # Descriptive aliases make the delimiters easier to use from a parser.
-    LSET = LPOSSET
-    NSET = LNEGSET
-    POSITIVE_SET = LPOSSET
-    NEGATIVE_SET = LNEGSET
-    BACKSLASH = BSLASH
-
-
 Token = namedtuple("Token", ["typ", "value", "line", "column"])
 
 
