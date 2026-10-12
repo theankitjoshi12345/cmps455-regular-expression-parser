@@ -10,6 +10,7 @@ def tokenize(expression):
         "|": "VERT", "*": "STAR", "+": "PLUS", "?": "QMARK",
         "(": "LPAREN", ")": "RPAREN", ".": "PERIOD", "[": "LPOSSET",
         "]": "RSET", "<": "LANGLE", ">": "RANGLE", "\\": "BSLASH",
+        "\n": "EOL",
     }
     index = 0
     while index < len(expression):
