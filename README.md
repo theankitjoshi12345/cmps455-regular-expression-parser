@@ -1,83 +1,12 @@
-# CMPS455 Regular-Expression Parser
+# CMPS455 Project 1
 
-Python implementation of the CMPS455 regular-expression scanner and
-recursive-descent recognizer. The project follows the grammar and output
-requirements in
-[CMPS455_Regular_Expression_Parser_Instructions.pdf](./CMPS455_Regular_Expression_Parser_Instructions.pdf).
-
-## Requirements
-
-- Python 3.9 or newer
-
-The initial project setup has no third-party runtime dependencies. The
-scanner and recognizer are intentionally separate modules so their
-implementations can be developed independently.
-
-## Setup
-
-Create and activate a virtual environment:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e ".[dev]"
-```
+This program scans and recognizes the six regular expressions from the
+assignment and prints their concrete syntax trees.
 
 ## Run
 
-Process the assignment's sample expressions:
+Python 3 is the only requirement.
 
 ```bash
-python -m regex_parser
+python3 main.py
 ```
-
-Process expressions supplied on the command line:
-
-```bash
-python -m regex_parser 'two' 't|w|o' 't(oo?|wo)'
-```
-
-## Test
-
-```bash
-python -m unittest discover -s tests -v
-```
-
-The instructor-provided `Tokenizer.py` in the repository root is preserved as
-reference material. The package scanner adapts its token-record and
-source-location conventions for the regular-expression grammar without
-executing the reference file's demonstration code on import.
-
-The scanner exposes `Token`, `TokenType`, `tokenize`, and `TokenStream`.
-`tokenize` preserves each token's lexeme and one-based line/zero-based column;
-spaces and tabs are skipped, newlines produce `EOL`, and unsupported control
-characters produce `ERROR`.
-
-The recognizer has one method for each grammar rule:
-`parse_regular_expression`, `parse_simple_regular_expression`,
-`parse_basic_regular_expression`, `parse_elementary_regular_expression`,
-`parse_character_or_metacharacter`, and `parse_set_items`. It prints the
-concrete syntax tree directly with four spaces per grammar level and token
-leaves in `lexeme TOKEN_TYPE` form. `RecognitionError` reports malformed input
-with the offending token and source position. The command-line entry point
-prints each tree and returns a nonzero status if any expression is invalid.
-
-For example, `python -m regex_parser two` prints:
-
-```text
-Processing expression: "two"
-RE
-    S_RE
-        B_RE
-            E_RE
-                t CHAR
-        B_RE
-            E_RE
-                w CHAR
-        B_RE
-            E_RE
-                o CHAR
-```
-
-Malformed input is reported with the token and source location, and the
-process exits nonzero when any supplied expression is invalid.
